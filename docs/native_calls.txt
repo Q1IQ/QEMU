@@ -1,0 +1,70 @@
+Native Library Calls Optimization for QEMU Linux-User
+====================
+
+Description
+===========
+When running under the linux-user mode in QEMU, the entire program,
+including all library calls, is translated. Many well-understood
+library functions are usually optimized for the processor they run
+on. For example, the semantics of memcpy are well-defined and
+optimized. Instead of translating these library functions, we can
+call their native versions, as the runtime of library functions
+is generally biased towards a few core functions. Thus, only a
+small subset of functions (such as mem* and str*) would need to
+be hooked to be useful.
+
+
+Implementation
+==============
+This feature introduces a set of specialized instructions for native
+calls and provides helpers to translate these instructions to
+corresponding native functions. A shared library is also implemented,
+where native functions are rewritten as specialized instructions.
+At runtime, user programs load the shared library, and specialized
+instructions are executed when native functions are called.
+
+The specialized instructions are implemented using architecture-
+specific macros. These macros utilize unused or invalid opcodes or
+instruction fields to embed the necessary information for native
+function calls. This approach ensures that the specialized
+instructions do not conflict with existing instructions.
+
+For x86 and x86_64, the implementation uses an unused opcode.
+For arm and aarch64, the HLT instruction is used, as it is invalid in
+userspace and has 16 bits of spare immediate data.
+For mips and mips64, the implementation takes advantage of unused
+bytes in the syscall instruction.
+
+Supported Architectures
+=======================
+This feature is applicable to user programs with the following
+architectures now:
+- x86
+- x86_64
+- arm
+- aarch64
+- mips
+- mips64
+
+
+Usage
+=====
+1. Install Cross-Compilation Tools
+Cross-compilation tools are required to build the shared libraries
+that can hook the necessary library functions. For example, a viable
+command on Ubuntu is:
+```
+apt install libc6:i386 gcc-arm-linux-gnueabihf \
+gcc-aarch64-linux-gnu gcc-mips-linux-gnu gcc-mips64-linux-gnuabi64
+```
+2. Locate the Compiled libnative.so
+After compilation, the libnative.so file can be found in the
+`./build/common-user/native/<target>-linux-user` directory.
+
+3. Run the Program with the `--native-bypass` Option
+To run your program with native library bypass, use the
+`--native-bypass` option to import libnative.so:
+```
+./build/qemu-<target> --native-bypass \
+./build/common-user/native/<target>-linux-user/libnative.so ./program
+```
