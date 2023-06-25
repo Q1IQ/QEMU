@@ -36,6 +36,7 @@
 #include "qemu/qemu-print.h"
 #include "fpu_helper.h"
 #include "translate.h"
+#include "native/native-defs.h"
 
 /*
  * Many sysemu-only helpers are not reachable for user-only.
@@ -13592,6 +13593,31 @@ static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
 #endif
         break;
     case OPC_SYSCALL:
+        uint32_t sig = (ctx->opcode) >> 6;
+        if (native_call_enabled() && (!ctx->native_call_status) && sig) {
+            ctx->native_call_status = true;
+            ctx->native_call_id = sig;
+            break;
+        } else if (native_call_enabled() && (ctx->native_call_status) && sig) {
+            TCGv arg1 = tcg_temp_new();
+            TCGv arg2 = tcg_temp_new();
+            TCGv arg3 = tcg_temp_new();
+
+            tcg_gen_mov_tl(arg1, cpu_gpr[4]);
+            tcg_gen_mov_tl(arg2, cpu_gpr[5]);
+            tcg_gen_mov_tl(arg3, cpu_gpr[6]);
+
+            TCGv_i32 abi_map = tcg_constant_i32(sig);
+            TCGv_i32 func_id = tcg_constant_i32(ctx->native_call_id);
+            TCGv res = tcg_temp_new();
+            TCGv_i32 mmu_idx = tcg_constant_i32(MMU_USER_IDX);
+            gen_helper_native_call(res, cpu_env, arg1, arg2, arg3,
+                                    abi_map, func_id, mmu_idx);
+            tcg_gen_mov_tl(cpu_gpr[2], res);
+            ctx->native_call_status = false;
+            ctx->native_call_id = 0;
+            break;
+        }
         generate_exception_end(ctx, EXCP_SYSCALL);
         break;
     case OPC_BREAK:
