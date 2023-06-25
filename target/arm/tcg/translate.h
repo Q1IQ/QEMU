@@ -149,6 +149,12 @@ typedef struct DisasContext {
     int c15_cpar;
     /* TCG op of the current insn_start.  */
     TCGOp *insn_start;
+    /*
+     * Indicate whether the next instruction is a native function call (true)
+     * or not (false).
+     */
+    bool native_call_status;
+    int native_call_id;
 } DisasContext;
 
 typedef struct DisasCompare {

@@ -35,6 +35,7 @@
 #include "cpregs.h"
 #include "translate-a64.h"
 #include "qemu/atomic128.h"
+#include "native/native-defs.h"
 
 static TCGv_i64 cpu_X[32];
 static TCGv_i64 cpu_pc;
@@ -2331,9 +2332,33 @@ static void disas_exc(DisasContext *s, uint32_t insn)
         /* BRK */
         gen_exception_bkpt_insn(s, syn_aa64_bkpt(imm16));
         break;
-    case 2:
+    case 2: /* HLT */
         if (op2_ll != 0) {
             unallocated_encoding(s);
+            break;
+        }
+        if (native_call_enabled() && (!s->native_call_status)) {
+            s->native_call_status = true;
+            s->native_call_id = imm16;
+            break;
+        } else if (native_call_enabled() && (s->native_call_status)) {
+            TCGv_i64 arg1 = tcg_temp_new_i64();
+            TCGv_i64 arg2 = tcg_temp_new_i64();
+            TCGv_i64 arg3 = tcg_temp_new_i64();
+
+            tcg_gen_mov_i64(arg1, cpu_reg(s, 0));
+            tcg_gen_mov_i64(arg2, cpu_reg(s, 1));
+            tcg_gen_mov_i64(arg3, cpu_reg(s, 2));
+
+            TCGv_i32 abi_map = tcg_constant_i32(imm16);
+            TCGv_i32 func_id = tcg_constant_i32(s->native_call_id);
+            TCGv_i64 res = tcg_temp_new_i64();
+            TCGv_i32 mmu_idx = tcg_constant_i32(MMU_USER_IDX);
+            gen_helper_native_call(res, cpu_env, arg1, arg2, arg3,
+                                    abi_map, func_id, mmu_idx);
+            tcg_gen_mov_i64(cpu_reg(s, 0), res);
+            s->native_call_status = false;
+            s->native_call_id = 0;
             break;
         }
         /* HLT. This has two purposes.

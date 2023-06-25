@@ -34,7 +34,7 @@
 #include "exec/helper-gen.h"
 #include "exec/log.h"
 #include "cpregs.h"
-
+#include "native/native-defs.h"
 
 #define ENABLE_ARCH_4T    arm_dc_feature(s, ARM_FEATURE_V4T)
 #define ENABLE_ARCH_5     arm_dc_feature(s, ARM_FEATURE_V5)
@@ -57,6 +57,7 @@ static TCGv_i32 cpu_R[16];
 TCGv_i32 cpu_CF, cpu_NF, cpu_VF, cpu_ZF;
 TCGv_i64 cpu_exclusive_addr;
 TCGv_i64 cpu_exclusive_val;
+
 
 #include "exec/gen-icount.h"
 
@@ -1147,12 +1148,32 @@ static inline void gen_hlt(DisasContext *s, int imm)
      * semihosting, to provide some semblance of security
      * (and for consistency with our 32-bit semihosting).
      */
+    if (native_call_enabled() && (!s->native_call_status)) {
+        s->native_call_status = true;
+        s->native_call_id = imm;
+        return;
+    } else if (native_call_enabled() && (s->native_call_status)) {
+        TCGv_i32 arg1 = load_reg(s, 0);
+        TCGv_i32 arg2 = load_reg(s, 1);
+        TCGv_i32 arg3 = load_reg(s, 2);
+
+        TCGv_i32 abi_map = tcg_constant_i32(imm);
+        TCGv_i32 func_id = tcg_constant_i32(s->native_call_id);
+        TCGv_i32 res = tcg_temp_new_i32();
+        TCGv_i32 mmu_idx = tcg_constant_i32(MMU_USER_IDX);
+        gen_helper_native_call_i32(res, cpu_env, arg1, arg2, arg3,
+                                    abi_map, func_id, mmu_idx);
+
+        store_reg(s, 0, res);
+        s->native_call_status = false;
+        s->native_call_id = 0;
+        return;
+    }
     if (semihosting_enabled(s->current_el == 0) &&
         (imm == (s->thumb ? 0x3c : 0xf000))) {
         gen_exception_internal_insn(s, EXCP_SEMIHOST);
         return;
     }
-
     unallocated_encoding(s);
 }
 
