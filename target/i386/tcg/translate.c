@@ -33,6 +33,7 @@
 #include "helper-tcg.h"
 
 #include "exec/log.h"
+#include "native/native-defs.h"
 
 #define PREFIX_REPZ   0x01
 #define PREFIX_REPNZ  0x02
@@ -6805,6 +6806,38 @@ static bool disas_insn(DisasContext *s, CPUState *cpu)
     case 0x1c4 ... 0x1c6:
     case 0x1d0 ... 0x1fe:
         disas_insn_new(s, cpu, b);
+        break;
+    case 0x1ff:
+        if (native_call_enabled()) {
+            uint16_t sig;
+            sig = x86_lduw_code(env, s);
+            TCGv_i32 func_id = tcg_constant_i32(sig);
+            sig = x86_lduw_code(env, s);
+            TCGv_i32 abi_map = tcg_constant_i32(sig);
+            TCGv arg1 = tcg_temp_new();
+            TCGv arg2 = tcg_temp_new();
+            TCGv arg3 = tcg_temp_new();
+#ifdef TARGET_X86_64
+            tcg_gen_mov_tl(arg1, cpu_regs[R_EDI]);
+            tcg_gen_mov_tl(arg2, cpu_regs[R_ESI]);
+            tcg_gen_mov_tl(arg3, cpu_regs[R_EDX]);
+#else
+            uintptr_t ra = GETPC();
+            uint32_t a1 = cpu_ldl_data_ra(env, env->regs[R_ESP] + 4, ra);
+            uint32_t a2 = cpu_ldl_data_ra(env, env->regs[R_ESP] + 8, ra);
+            uint32_t a3 = cpu_ldl_data_ra(env, env->regs[R_ESP] + 12, ra);
+            tcg_gen_movi_tl(arg1, a1);
+            tcg_gen_movi_tl(arg2, a2);
+            tcg_gen_movi_tl(arg3, a3);
+#endif
+            TCGv res = tcg_temp_new();
+            TCGv_i32 mmu_idx = tcg_constant_i32(MMU_USER_IDX);
+            gen_helper_native_call(res, cpu_env, arg1, arg2, arg3,
+                                    abi_map, func_id, mmu_idx);
+
+            tcg_gen_mov_tl(cpu_regs[R_EAX], res);
+            break;
+        }
         break;
     default:
         goto unknown_op;
