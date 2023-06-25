@@ -60,6 +60,13 @@
 #include "semihosting/semihost.h"
 #endif
 
+#if defined(CONFIG_NATIVE_CALL)
+#include "native/native-defs.h"
+
+static const char *native_lib;
+bool native_bypass_enabled;
+#endif
+
 #ifndef AT_FLAGS_PRESERVE_ARGV0
 #define AT_FLAGS_PRESERVE_ARGV0_BIT 0
 #define AT_FLAGS_PRESERVE_ARGV0 (1 << AT_FLAGS_PRESERVE_ARGV0_BIT)
@@ -124,6 +131,7 @@ static void usage(int exitcode);
 
 static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
 const char *qemu_uname_release;
+
 
 #if !defined(TARGET_DEFAULT_STACK_SIZE)
 /* XXX: on x86 MAP_GROWSDOWN only works if ESP <= address + 32, so
@@ -292,6 +300,18 @@ static void handle_arg_set_env(const char *arg)
     }
     free(r);
 }
+
+#if defined(CONFIG_NATIVE_CALL)
+static void handle_arg_native_bypass(const char *arg)
+{
+    if (access(arg, F_OK) != 0) {
+        fprintf(stderr, "native library %s does not exist\n", arg);
+        exit(EXIT_FAILURE);
+    }
+    native_lib = arg;
+    native_bypass_enabled = true;
+}
+#endif
 
 static void handle_arg_unset_env(const char *arg)
 {
@@ -522,6 +542,10 @@ static const struct qemu_argument arg_table[] = {
      "",           "Generate a /tmp/perf-${pid}.map file for perf"},
     {"jitdump",    "QEMU_JITDUMP",     false, handle_arg_jitdump,
      "",           "Generate a jit-${pid}.dump file for perf"},
+#if defined(CONFIG_NATIVE_CALL)
+    {"native-bypass", "QEMU_NATIVE_BYPASS", true, handle_arg_native_bypass,
+     "",           "native bypass for library calls in user mode only."},
+#endif
     {NULL, NULL, false, NULL, NULL, NULL}
 };
 
@@ -826,6 +850,18 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
+#if defined(CONFIG_NATIVE_CALL)
+    /* Set the library for native bypass  */
+    if (native_bypass_enabled) {
+        GString *lib = g_string_new(native_lib);
+        lib = g_string_prepend(lib, "LD_PRELOAD=");
+        if (envlist_appendenv(envlist, g_string_free(lib, false), ":") != 0) {
+            fprintf(stderr,
+                    "failed to append the native library to environment.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+#endif
     target_environ = envlist_to_environ(envlist, NULL);
     envlist_free(envlist);
 
