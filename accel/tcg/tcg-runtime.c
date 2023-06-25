@@ -148,3 +148,40 @@ void HELPER(exit_atomic)(CPUArchState *env)
 {
     cpu_loop_exit_atomic(env_cpu(env), GETPC());
 }
+
+target_ulong helper_native_call(CPUArchState *env, target_ulong arg1,
+                                target_ulong arg2, target_ulong arg3,
+                                uint32_t abi_map, uint32_t func_id, uint32_t mmu_idx)
+{
+    if (GET_ARG3(abi_map)) {
+        return do_native_3in1out(env, arg1, arg2, arg3, abi_map, func_id,
+                                 mmu_idx);
+    } else {
+        return do_native_2in1out(env, arg1, arg2, abi_map, func_id, mmu_idx);
+    }
+}
+
+
+uint32_t helper_native_call_i32(CPUArchState *env, uint32_t arg1, uint32_t arg2,
+                                uint32_t arg3, uint32_t abi_map,
+                                uint32_t func_id, uint32_t mmu_idx)
+{
+    if (GET_ARG3(abi_map)) {
+        return do_native_3in1out(env, arg1, arg2, arg3, abi_map, func_id,
+                                 mmu_idx);
+    } else {
+        return do_native_2in1out(env, arg1, arg2, abi_map, func_id, mmu_idx);
+    }
+}
+
+uint64_t helper_native_call_i64(CPUArchState *env, uint64_t arg1, uint64_t arg2,
+                                uint64_t arg3, uint32_t abi_map,
+                                uint32_t func_id, uint32_t mmu_idx)
+{
+    if (GET_ARG3(abi_map)) {
+        return do_native_3in1out(env, arg1, arg2, arg3, abi_map, func_id,
+                                 mmu_idx);
+    } else {
+        return do_native_2in1out(env, arg1, arg2, abi_map, func_id, mmu_idx);
+    }
+}

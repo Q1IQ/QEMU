@@ -300,3 +300,7 @@ DEF_HELPER_FLAGS_4(gvec_leu32, TCG_CALL_NO_RWG, void, ptr, ptr, ptr, i32)
 DEF_HELPER_FLAGS_4(gvec_leu64, TCG_CALL_NO_RWG, void, ptr, ptr, ptr, i32)
 
 DEF_HELPER_FLAGS_5(gvec_bitsel, TCG_CALL_NO_RWG, void, ptr, ptr, ptr, ptr, i32)
+
+DEF_HELPER_7(native_call, tl, env, tl, tl, tl, i32, i32, i32)
+DEF_HELPER_7(native_call_i32, i32, env, i32, i32, i32, i32, i32, i32)
+DEF_HELPER_7(native_call_i64, i64, env, i64, i64, i64, i32, i32, i32)
