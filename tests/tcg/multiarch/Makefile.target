@@ -128,7 +128,14 @@ run-semiconsole: semiconsole
 run-plugin-semiconsole-with-%:
 	$(call skip-test, $<, "MANUAL ONLY")
 
-TESTS += semihosting semiconsole
+nativecalls: native/nativecalls.c
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) $< -o $@ $(filter-out -static,$(LDFLAGS))
+
+run-nativecalls: nativecalls
+	$(call run-test,$<, $(QEMU) -L /usr/$(subst -gcc,,$(CC)) --native-bypass $(SRC_PATH)/build/common-user/native/$(TARGET)/libnative.so $<, \
+	"native call")
+
+TESTS += semihosting semiconsole nativecalls
 endif
 
 # Update TESTS
