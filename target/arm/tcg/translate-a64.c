@@ -25,6 +25,7 @@
 #include "arm_ldst.h"
 #include "semihosting/semihost.h"
 #include "cpregs.h"
+#include "native/native.h"
 
 static TCGv_i64 cpu_X[32];
 static TCGv_i64 cpu_pc;
@@ -2400,6 +2401,28 @@ static bool trans_HLT(DisasContext *s, arg_i *a)
      * it is required for halting debug disabled: it will UNDEF.
      * Secondly, "HLT 0xf000" is the A64 semihosting syscall instruction.
      */
+    if (native_bypass_enabled()) {
+        if (s->native_call_status) {
+            TCGv_i64 arg1 = tcg_temp_new_i64();
+            TCGv_i64 arg2 = tcg_temp_new_i64();
+            TCGv_i64 arg3 = tcg_temp_new_i64();
+            TCGv_i64 ret = tcg_temp_new_i64();
+            tcg_gen_mov_i64(arg1, cpu_reg(s, 0));
+            tcg_gen_mov_i64(arg2, cpu_reg(s, 1));
+            tcg_gen_mov_i64(arg3, cpu_reg(s, 2));
+            set_helper_retaddr(1);
+            gen_native_call_i64(a->imm, s->native_call_id, ret,
+                                arg1, arg2, arg3);
+            clear_helper_retaddr();
+            tcg_gen_mov_i64(cpu_reg(s, 0), ret);
+            s->native_call_status = false;
+            s->native_call_id = 0;
+        } else {
+            s->native_call_status = true;
+            s->native_call_id = a->imm;
+        }
+        return true;
+    }
     if (semihosting_enabled(s->current_el == 0) && a->imm == 0xf000) {
         gen_exception_internal_insn(s, EXCP_SEMIHOST);
     } else {
@@ -13894,6 +13917,9 @@ static void aarch64_tr_init_disas_context(DisasContextBase *dcbase,
 #ifdef CONFIG_USER_ONLY
     /* In sve_probe_page, we assume TBI is enabled. */
     tcg_debug_assert(dc->tbid & 1);
+    if (native_bypass_enabled()) {
+        dc->native_call_status = false;
+    }
 #endif
 
     dc->lse2 = dc_isar_feature(aa64_lse2, dc);

@@ -27,6 +27,7 @@
 #include "arm_ldst.h"
 #include "semihosting/semihost.h"
 #include "cpregs.h"
+#include "native/native.h"
 #include "exec/helper-proto.h"
 
 #define HELPER_H "helper.h"
@@ -1139,6 +1140,25 @@ static inline void gen_hlt(DisasContext *s, int imm)
      * semihosting, to provide some semblance of security
      * (and for consistency with our 32-bit semihosting).
      */
+    if (native_bypass_enabled()) {
+        if (s->native_call_status) {
+            TCGv_i32 arg1 = load_reg(s, 0);
+            TCGv_i32 arg2 = load_reg(s, 1);
+            TCGv_i32 arg3 = load_reg(s, 2);
+            TCGv_i32 ret = tcg_temp_new_i32();
+            set_helper_retaddr(1);
+            gen_native_call_i32(imm, s->native_call_id, ret, arg1, arg2, arg3);
+            clear_helper_retaddr();
+            store_reg(s, 0, ret);
+            s->native_call_status = false;
+            s->native_call_id = 0;
+            return;
+        } else {
+            s->native_call_status = true;
+            s->native_call_id = imm;
+            return;
+        }
+    }
     if (semihosting_enabled(s->current_el == 0) &&
         (imm == (s->thumb ? 0x3c : 0xf000))) {
         gen_exception_internal_insn(s, EXCP_SEMIHOST);
@@ -9136,6 +9156,10 @@ static void arm_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     dc->current_el = arm_mmu_idx_to_el(dc->mmu_idx);
 #if !defined(CONFIG_USER_ONLY)
     dc->user = (dc->current_el == 0);
+#else
+    if (native_bypass_enabled()) {
+        dc->native_call_status = false;
+    }
 #endif
     dc->fp_excp_el = EX_TBFLAG_ANY(tb_flags, FPEXC_EL);
     dc->align_mem = EX_TBFLAG_ANY(tb_flags, ALIGN_MEM);
