@@ -52,6 +52,8 @@ typedef struct DisasContext {
     bool saar;
     bool mi;
     int gi;
+    bool native_call_status;
+    uint32_t native_call_id;
 } DisasContext;
 
 #define DISAS_STOP       DISAS_TARGET_0

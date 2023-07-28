@@ -36,6 +36,8 @@
 #include "exec/helper-info.c.inc"
 #undef  HELPER_H
 
+#include "translate.h"
+#include "native/native.h"
 
 /*
  * Many sysemu-only helpers are not reachable for user-only.
@@ -13487,7 +13489,7 @@ static void decode_opc_special_legacy(CPUMIPSState *env, DisasContext *ctx)
 static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
 {
     int rs, rt, rd, sa;
-    uint32_t op1;
+    uint32_t op1, sig;
 
     rs = (ctx->opcode >> 21) & 0x1f;
     rt = (ctx->opcode >> 16) & 0x1f;
@@ -13583,6 +13585,34 @@ static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
 #endif
         break;
     case OPC_SYSCALL:
+        sig = (ctx->opcode) >> 6;
+        if (sig && native_bypass_enabled()) {
+            if (ctx->native_call_status) {
+                TCGv arg1 = tcg_temp_new();
+                TCGv arg2 = tcg_temp_new();
+                TCGv arg3 = tcg_temp_new();
+                TCGv ret = tcg_temp_new();
+                tcg_gen_mov_tl(arg1, cpu_gpr[4]);
+                tcg_gen_mov_tl(arg2, cpu_gpr[5]);
+                tcg_gen_mov_tl(arg3, cpu_gpr[6]);
+                set_helper_retaddr(1);
+#if defined(TARGET_MIPS64)
+                gen_native_call_i64(sig, ctx->native_call_id, ret,
+                                    arg1, arg2, arg3);
+#else
+                gen_native_call_i32(sig, ctx->native_call_id, ret,
+                                    arg1, arg2, arg3);
+#endif
+                clear_helper_retaddr();
+                tcg_gen_mov_tl(cpu_gpr[2], ret);
+                ctx->native_call_status = false;
+                ctx->native_call_id = 0;
+            } else {
+                ctx->native_call_status = true;
+                ctx->native_call_id = sig;
+            }
+            break;
+        }
         generate_exception_end(ctx, EXCP_SYSCALL);
         break;
     case OPC_BREAK:
@@ -15413,6 +15443,9 @@ static void mips_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     restore_cpu_state(env, ctx);
 #ifdef CONFIG_USER_ONLY
         ctx->mem_idx = MIPS_HFLAG_UM;
+        if (native_bypass_enabled()) {
+            ctx->native_call_status = false;
+        }
 #else
         ctx->mem_idx = hflags_mmu_index(ctx->hflags);
 #endif
