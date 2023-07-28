@@ -29,7 +29,7 @@
 #include "exec/translation-block.h"
 #include "exec/plugin-gen.h"
 #include "tcg-internal.h"
-
+#include "native/native-defs.h"
 
 void tcg_gen_op1(TCGOpcode opc, TCGArg a1)
 {
@@ -2851,4 +2851,164 @@ void tcg_gen_lookup_and_goto_ptr(void)
     gen_helper_lookup_tb_ptr(ptr, cpu_env);
     tcg_gen_op1i(INDEX_op_goto_ptr, tcgv_ptr_arg(ptr));
     tcg_temp_free_ptr(ptr);
+}
+
+#ifdef CONFIG_USER_ONLY
+void tcg_gen_g2h_i32(TCGv_ptr ret, TCGv_i32 arg)
+{
+    TCGv_ptr temp = tcg_temp_new_ptr();
+    tcg_gen_ext_i32_ptr(temp, arg);
+    tcg_gen_addi_ptr(ret, temp, guest_base);
+    tcg_temp_free_ptr(temp);
+}
+
+void tcg_gen_g2h_i64(TCGv_ptr ret, TCGv_i64 arg)
+{
+    TCGv_ptr temp = tcg_temp_new_ptr();
+    tcg_gen_trunc_i64_ptr(temp, arg); /* Not sure */
+    tcg_gen_addi_ptr(ret, temp, guest_base);
+    tcg_temp_free_ptr(temp);
+}
+
+void tcg_gen_h2g_i32(TCGv_i32 ret, TCGv_ptr arg)
+{
+    TCGv_ptr temp = tcg_temp_new_ptr();
+    tcg_gen_subi_ptr(temp, arg, guest_base);
+    tcg_gen_trunc_ptr_i32(ret, temp);
+    tcg_temp_free_ptr(temp);
+}
+
+void tcg_gen_h2g_i64(TCGv_i64 ret, TCGv_ptr arg)
+{
+    TCGv_ptr temp = tcg_temp_new_ptr();
+    tcg_gen_subi_ptr(temp, arg, guest_base);
+    tcg_gen_extu_ptr_i64(ret, temp);
+    tcg_temp_free_ptr(temp);
+}
+
+#else
+void tcg_gen_g2h_i32(TCGv_ptr ret, TCGv_i32 arg)
+{
+}
+void tcg_gen_g2h_i64(TCGv_ptr ret, TCGv_i64 arg)
+{
+}
+void tcg_gen_h2g_i32(TCGv_i32 ret, TCGv_ptr arg)
+{
+}
+void tcg_gen_h2g_i64(TCGv_i64 ret, TCGv_ptr arg)
+{
+}
+#endif
+
+TCGv_ptr tcg_native_call_i32_ptr(uint8_t type, TCGv_i32 tmp)
+{
+    TCGv_ptr arg_ptr = tcg_temp_new_ptr();
+    switch (type) {
+    case TYPE_PTR_ARG:
+        tcg_gen_g2h_i32(arg_ptr, tmp);
+        break;
+    case TYPE_IPTR_ARG:
+        tcg_gen_ext_i32_ptr(arg_ptr, tmp);
+        break;
+    case TYPE_INT_ARG:
+    default:
+        break;
+    }
+    return arg_ptr;
+}
+TCGv_ptr tcg_native_call_i64_ptr(uint8_t type, TCGv_i64 tmp)
+{
+    TCGv_ptr arg_ptr = tcg_temp_new_ptr();
+    switch (type) {
+    case TYPE_PTR_ARG:
+        tcg_gen_g2h_i64(arg_ptr, tmp);
+        break;
+    case TYPE_IPTR_ARG:
+        tcg_gen_trunc_i64_ptr(arg_ptr, tmp);
+        break;
+    case TYPE_INT_ARG: /* cant handle this case */
+    default:
+        break;
+    }
+    return arg_ptr;
+}
+
+void gen_native_call_i32(uint32_t abi_map, uint32_t call_id, TCGv_i32 ret,
+                         TCGv_i32 arg1, TCGv_i32 arg2, TCGv_i32 arg3)
+{
+    TCGv_ptr arg1_ptr = tcg_native_call_i32_ptr(GET_ARG1(abi_map), arg1);
+    TCGv_ptr arg2_ptr = tcg_native_call_i32_ptr(GET_ARG2(abi_map), arg2);
+    TCGv_ptr arg3_ptr = tcg_native_call_i32_ptr(GET_ARG3(abi_map), arg3);
+    TCGv_ptr ret_ptr = tcg_temp_new_ptr();
+    switch (call_id) {
+    case NATIVE_MEMSET:
+        gen_helper_memset(ret_ptr, arg1_ptr, arg2, arg3_ptr);
+        break;
+    case NATIVE_MEMCPY:
+        gen_helper_memcpy(ret_ptr, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_STRNCPY:
+        gen_helper_strncpy(ret_ptr, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_MEMCMP:
+        gen_helper_memcmp(ret, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_STRNCMP:
+        gen_helper_strncmp(ret, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_STRCPY:
+        gen_helper_strcpy(ret_ptr, arg1_ptr, arg2_ptr);
+        break;
+    case NATIVE_STRCMP:
+        gen_helper_strcmp(ret, arg1_ptr, arg2_ptr);
+        break;
+    default:
+        break;
+    }
+    if (IS_PTR_RVALUE(abi_map)) {
+        tcg_gen_h2g_i32(ret, ret_ptr);
+    }
+}
+
+void gen_native_call_i64(uint32_t abi_map, uint32_t call_id, TCGv_i64 ret,
+                         TCGv_i64 arg1, TCGv_i64 arg2, TCGv_i64 arg3)
+{
+    TCGv_ptr arg1_ptr = tcg_native_call_i64_ptr(GET_ARG1(abi_map), arg1);
+    TCGv_ptr arg2_ptr = tcg_native_call_i64_ptr(GET_ARG2(abi_map), arg2);
+    TCGv_ptr arg3_ptr = tcg_native_call_i64_ptr(GET_ARG3(abi_map), arg3);
+    TCGv_ptr ret_ptr = tcg_temp_new_ptr();
+    TCGv_i32 ret_i32 = tcg_temp_new_i32();
+    TCGv_i32 arg2_i32 = tcg_temp_new_i32();
+    switch (call_id) {
+    case NATIVE_MEMSET:
+        tcg_gen_extrl_i64_i32(arg2_i32, arg2);
+        gen_helper_memset(ret_ptr, arg1_ptr, arg2_i32, arg3_ptr);
+        break;
+    case NATIVE_MEMCPY:
+        gen_helper_memcpy(ret_ptr, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_STRNCPY:
+        gen_helper_strncpy(ret_ptr, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_MEMCMP:
+        gen_helper_memcmp(ret_i32, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_STRNCMP:
+        gen_helper_strncmp(ret_i32, arg1_ptr, arg2_ptr, arg3_ptr);
+        break;
+    case NATIVE_STRCPY:
+        gen_helper_strcpy(ret_ptr, arg1_ptr, arg2_ptr);
+        break;
+    case NATIVE_STRCMP:
+        gen_helper_strcmp(ret_i32, arg1_ptr, arg2_ptr);
+        break;
+    default:
+        break;
+    }
+    if (IS_PTR_RVALUE(abi_map)) {
+        tcg_gen_h2g_i64(ret, ret_ptr);
+    } else if (IS_INT_RVALUE(abi_map)) {
+        tcg_gen_extu_i32_i64(ret, ret_i32);
+    }
 }

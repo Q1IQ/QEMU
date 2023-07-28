@@ -35,6 +35,9 @@
 #include "tcg-target.h"
 #include "tcg/tcg-cond.h"
 #include "tcg/debug-assert.h"
+#ifdef CONFIG_USER_ONLY
+#include "exec/user/guest-base.h"
+#endif
 
 /* XXX: make safe guess about sizes */
 #define MAX_OP_PER_INSTR 266
@@ -1147,5 +1150,13 @@ static inline const TCGOpcode *tcg_swap_vecop_list(const TCGOpcode *n)
 }
 
 bool tcg_can_emit_vecop_list(const TCGOpcode *, TCGType, unsigned);
+
+/* native call */
+TCGv_ptr tcg_native_call_i32_ptr(uint8_t type, TCGv_i32 tmp);
+TCGv_ptr tcg_native_call_i64_ptr(uint8_t type, TCGv_i64 tmp);
+void gen_native_call_i32(uint32_t abi_map, uint32_t call_id, TCGv_i32 ret,
+                     TCGv_i32 arg1, TCGv_i32 arg2, TCGv_i32 arg3);
+void gen_native_call_i64(uint32_t abi_map, uint32_t call_id, TCGv_i64 ret,
+                     TCGv_i64 arg1, TCGv_i64 arg2, TCGv_i64 arg3);
 
 #endif /* TCG_H */
